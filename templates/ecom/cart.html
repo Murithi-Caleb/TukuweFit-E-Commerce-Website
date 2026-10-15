@@ -33,29 +33,26 @@
         </tr>
       </thead>
       {% for p in products %}
-  {% if p %}
-
       <tr>
         <td> {{p.name}}</td>
-        <td> <img src="{% static 'p.product_image.url' %}" alt="Profile Pic" height="50px" width="50px" /></td>
+        <td>{% if p.product_image %}<img src="{{ p.product_image.url }}" alt="{{ p.name }}" height="50" width="50">{% endif %}</td>
         <td>KES {{p.price}}</td>
         <td>{{p.description}}</td>
 
         <td><a class="btn btn-danger btn-xs" href="{% url 'remove-from-cart' p.id  %}"><span class="glyphicon glyphicon-trash"></span></a></td>
 
       </tr>
-      {%else%}
-      <br><br><br>
-      <h1>no products</h1>
-      {% endif %}
       {% endfor %}
     </table>
+    {% if not products %}
+      <p class="text-center">Your cart is empty.</p>
+    {% endif %}
   </div>
 </div>
 <br><br><br>
 <div style="text-align: center;">
   <button class="btn btn-danger btn-lg">Total KES {{total}}</button>
-  <a href="/customer-address"><button class="btn btn-success btn-lg" ><span>Purchase </span></button></a>
+  {% if products %}<a class="btn btn-success btn-lg" href="{% url 'customer-address' %}">Purchase</a>{% endif %}
 </div>
 
 

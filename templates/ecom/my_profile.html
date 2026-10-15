@@ -1,0 +1,17 @@
+{% extends 'ecom/customer_base.html' %}
+{% block content %}
+<main class="container" style="max-width: 720px; margin: 40px auto;">
+  <h1>My profile</h1>
+  {% if customer.profile_pic %}
+    <p><img src="{{ customer.profile_pic.url }}" alt="Profile picture" height="120"></p>
+  {% endif %}
+  <dl class="dl-horizontal">
+    <dt>Name</dt><dd>{{ customer.get_name }}</dd>
+    <dt>Username</dt><dd>{{ customer.user.username }}</dd>
+    <dt>Email</dt><dd>{{ customer.user.email }}</dd>
+    <dt>Mobile</dt><dd>{{ customer.mobile }}</dd>
+    <dt>Address</dt><dd>{{ customer.address }}</dd>
+  </dl>
+  <a class="btn btn-primary" href="{% url 'edit-profile' %}">Edit profile</a>
+</main>
+{% endblock content %}

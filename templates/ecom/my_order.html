@@ -1,0 +1,28 @@
+{% extends 'ecom/customer_base.html' %}
+{% block content %}
+<main class="container" style="margin: 40px auto;">
+  <h1>My orders</h1>
+  {% if orders %}
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover">
+        <thead>
+          <tr><th>Product</th><th>Price</th><th>Order date</th><th>Status</th><th>Shipping address</th></tr>
+        </thead>
+        <tbody>
+          {% for order in orders %}
+            <tr>
+              <td>{{ order.product.name }}</td>
+              <td>KES {{ order.product.price }}</td>
+              <td>{{ order.order_date }}</td>
+              <td>{{ order.status }}</td>
+              <td>{{ order.address }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p>You do not have any orders yet.</p>
+  {% endif %}
+</main>
+{% endblock content %}

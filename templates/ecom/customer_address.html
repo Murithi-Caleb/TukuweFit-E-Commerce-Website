@@ -91,24 +91,29 @@ select{
 {%if product_in_cart%}
 <form method="post">
   {% csrf_token %}
+  {{ addressForm.non_field_errors }}
 <ul class="form-style-1">
     <li>
         <label>Email <span class="required">*</span></label>
         {% render_field addressForm.Email class="field-long" placeholder="Email" %}
+        {{ addressForm.Email.errors }}
 
     </li>
     <li>
         <label>Mobile <span class="required">*</span></label>
         {% render_field addressForm.Mobile class="field-long" placeholder="Mobile" %}
+        {{ addressForm.Mobile.errors }}
     </li>
 
     <li>
         <label>Shipment Address <span class="required">*</span></label>
         {% render_field addressForm.Address id="field5" class="field-long field-textarea" placeholder="Building Number,city, pin" %}
+        {{ addressForm.Address.errors }}
 
     </li>
+    <li><strong>Total: KES {{ total }}</strong></li>
     <li>
-        <input type="submit" value="Proceed To Pay" />
+        <input type="submit" value="Pay with M-Pesa" />
     </li>
 </ul>
 </form>

@@ -1,0 +1,34 @@
+# Python bytecode and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+myvenv/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Runtime database, uploads, and collected static files
+*.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Test, coverage, and log output
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+coverage.xml
+*.log
+
+# Local IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini

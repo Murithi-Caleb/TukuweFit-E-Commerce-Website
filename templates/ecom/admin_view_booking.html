@@ -54,7 +54,7 @@ facebook : fb.com/sumit.luv
         {% endfor %}
         {% for p in product %}
         <td> {{p.name}}</td>
-        <td> <img src="{% static p.product_image.url %}" alt="Profile Pic" height="40px" width="40px" /></td>
+        <td>{% if p.product_image %}<img src="{{ p.product_image.url }}" alt="{{ p.name }}" height="40" width="40">{% endif %}</td>
         <td>{{order.status}}</td>
         <td><a class="btn btn-primary btn-xs" href="{% url 'update-order' order.id  %}"><span class="glyphicon glyphicon-edit"></span></a>
         <a class="btn btn-danger btn-xs" href="{% url 'delete-order' order.id  %}"><span class="glyphicon glyphicon-trash"></span></a></td>

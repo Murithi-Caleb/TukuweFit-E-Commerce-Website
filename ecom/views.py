@@ -1,13 +1,24 @@
+import json
+import logging
+
 from django.shortcuts import render,redirect,reverse
 from . import forms,models
-from django.http import HttpResponseRedirect,HttpResponse
+from django.http import HttpResponseRedirect,HttpResponse,JsonResponse
+from django.core.exceptions import ImproperlyConfigured
 from django.core.mail import send_mail
 from django.contrib.auth.models import Group
 from django.contrib.auth.decorators import login_required,user_passes_test
+from django.db import transaction
 from django.contrib import messages
 from django.conf import settings
-# ecom/views.py
-from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+from .models import PaymentTransaction
+from .payments import DarajaError, initiate_stk_push, normalize_kenyan_phone
+
+
+logger = logging.getLogger(__name__)
 
 def download_invoice_view(request, orderID, productID):
     # Your code for downloading invoice
@@ -50,7 +61,8 @@ def customer_signup_view(request):
             customer.save()
             my_customer_group = Group.objects.get_or_create(name='CUSTOMER')
             my_customer_group[0].user_set.add(user)
-        return HttpResponseRedirect('customerlogin')
+            return HttpResponseRedirect('customerlogin')
+        mydict={'userForm':userForm,'customerForm':customerForm}
     return render(request,'ecom/customersignup.html',context=mydict)
 
 #for checking user is a customer
@@ -226,6 +238,7 @@ def search_view(request):
 
 # any one can add product to cart, no need of signin
 def add_to_cart_view(request,pk):
+    product = get_object_or_404(models.Product, pk=pk)
     products=models.Product.objects.all()
 
     #for cart counter, fetching products ids added by customer from cookies
@@ -249,11 +262,18 @@ def add_to_cart_view(request,pk):
     else:
         response.set_cookie('product_ids', pk)
 
-    product=models.Product.objects.get(id=pk)
     messages.info(request, product.name + ' added to cart successfully!')
 
     return response
 
+
+def _cart_products(request):
+    raw_ids = request.COOKIES.get('product_ids', '')
+    product_ids = []
+    for value in raw_ids.split('|'):
+        if value.isdecimal() and int(value) not in product_ids:
+            product_ids.append(int(value))
+    return models.Product.objects.filter(id__in=product_ids)
 
 
 # for checkout of cart
@@ -266,54 +286,22 @@ def cart_view(request):
     else:
         product_count_in_cart=0
 
-    # fetching product details from db whose id is present in cookie
-    products=None
-    total=0
-    if 'product_ids' in request.COOKIES:
-        product_ids = request.COOKIES['product_ids']
-        if product_ids != "":
-            product_id_in_cart=product_ids.split('|')
-            products=models.Product.objects.all().filter(id__in = product_id_in_cart)
-
-            #for total price shown in cart
-            for p in products:
-                total=total+p.price
+    products = _cart_products(request)
+    total = sum(product.price for product in products)
     return render(request,'ecom/cart.html',{'products':products,'total':total,'product_count_in_cart':product_count_in_cart})
 
 
 def remove_from_cart_view(request,pk):
-    #for counter in cart
-    if 'product_ids' in request.COOKIES:
-        product_ids = request.COOKIES['product_ids']
-        counter=product_ids.split('|')
-        product_count_in_cart=len(set(counter))
+    existing_ids = [
+        value for value in request.COOKIES.get('product_ids', '').split('|')
+        if value.isdecimal() and value != str(pk)
+    ]
+    response = redirect('cart')
+    if existing_ids:
+        response.set_cookie('product_ids', '|'.join(dict.fromkeys(existing_ids)))
     else:
-        product_count_in_cart=0
-
-    # removing product id from cookie
-    total=0
-    if 'product_ids' in request.COOKIES:
-        product_ids = request.COOKIES['product_ids']
-        product_id_in_cart=product_ids.split('|')
-        product_id_in_cart=list(set(product_id_in_cart))
-        product_id_in_cart.remove(str(pk))
-        products=models.Product.objects.all().filter(id__in = product_id_in_cart)
-        #for total price shown in cart after removing product
-        for p in products:
-            total=total+p.price
-
-        #  for update coookie value after removing product id in cart
-        value=""
-        for i in range(len(product_id_in_cart)):
-            if i==0:
-                value=value+product_id_in_cart[0]
-            else:
-                value=value+"|"+product_id_in_cart[i]
-        response = render(request, 'ecom/cart.html',{'products':products,'total':total,'product_count_in_cart':product_count_in_cart})
-        if value=="":
-            response.delete_cookie('product_ids')
-        response.set_cookie('product_ids',value)
-        return response
+        response.delete_cookie('product_ids')
+    return response
 
 
 def send_feedback_view(request):
@@ -340,93 +328,186 @@ def customer_home_view(request):
 
 # shipment address before placing order
 @login_required(login_url='customerlogin')
+@user_passes_test(is_customer)
 def customer_address_view(request):
-    # this is for checking whether product is present in cart or not
-    # if there is no product in cart we will not show address form
-    product_in_cart=False
-    if 'product_ids' in request.COOKIES:
-        product_ids = request.COOKIES['product_ids']
-        if product_ids != "":
-            product_in_cart=True
-    #for counter in cart
-    if 'product_ids' in request.COOKIES:
-        product_ids = request.COOKIES['product_ids']
-        counter=product_ids.split('|')
-        product_count_in_cart=len(set(counter))
-    else:
-        product_count_in_cart=0
-
-    addressForm = forms.AddressForm()
+    products = list(_cart_products(request))
+    product_in_cart = bool(products)
+    product_count_in_cart = len(products)
+    address_form = forms.AddressForm()
     if request.method == 'POST':
-        addressForm = forms.AddressForm(request.POST)
-        if addressForm.is_valid():
-            # here we are taking address, email, mobile at time of order placement
-            # we are not taking it from customer account table because
-            # these thing can be changes
-            email = addressForm.cleaned_data['Email']
-            mobile=addressForm.cleaned_data['Mobile']
-            address = addressForm.cleaned_data['Address']
-            #for showing total price on payment page.....accessing id from cookies then fetching  price of product from db
-            total=0
-            if 'product_ids' in request.COOKIES:
-                product_ids = request.COOKIES['product_ids']
-                if product_ids != "":
-                    product_id_in_cart=product_ids.split('|')
-                    products=models.Product.objects.all().filter(id__in = product_id_in_cart)
-                    for p in products:
-                        total=total+p.price
+        address_form = forms.AddressForm(request.POST)
+        if not products:
+            address_form.add_error(None, 'Your cart is empty.')
+        if address_form.is_valid():
+            try:
+                phone = normalize_kenyan_phone(address_form.cleaned_data['Mobile'])
+            except ValueError as exc:
+                address_form.add_error('Mobile', str(exc))
+            else:
+                customer = get_object_or_404(models.Customer, user=request.user)
+                total = sum(product.price for product in products)
+                if total < 1:
+                    address_form.add_error(None, 'The cart total must be at least KES 1 to pay with M-Pesa.')
+                    return render(
+                        request,
+                        'ecom/customer_address.html',
+                        {
+                            'addressForm': address_form,
+                            'product_in_cart': product_in_cart,
+                            'product_count_in_cart': product_count_in_cart,
+                            'total': total,
+                        },
+                    )
+                payment = PaymentTransaction.objects.create(
+                    customer=customer,
+                    products=[product.pk for product in products],
+                    email=address_form.cleaned_data['Email'],
+                    mobile=phone,
+                    address=address_form.cleaned_data['Address'],
+                    amount=total,
+                )
+                try:
+                    result = initiate_stk_push(phone, total, f'ORDER-{payment.pk}')
+                except (DarajaError, ImproperlyConfigured):
+                    logger.exception('Daraja STK Push failed for payment %s', payment.pk)
+                    payment.status = PaymentTransaction.STATUS_FAILED
+                    payment.result_description = 'Could not start M-Pesa payment.'
+                    payment.save(update_fields=['status', 'result_description', 'updated_at'])
+                    messages.error(
+                        request,
+                        'We could not start your M-Pesa payment. Please check your details or try again later.',
+                    )
+                else:
+                    payment.merchant_request_id = result.get('MerchantRequestID', '')
+                    payment.checkout_request_id = result['CheckoutRequestID']
+                    payment.result_description = result.get('CustomerMessage', 'Payment prompt sent to your phone.')
+                    payment.save(
+                        update_fields=[
+                            'merchant_request_id',
+                            'checkout_request_id',
+                            'result_description',
+                            'updated_at',
+                        ],
+                    )
+                    return redirect('payment-status', transaction_id=payment.pk)
 
-            response = render(request, 'ecom/../../../../../../PycharmProjects/KotlinFinal/templates/payment.html',{'total':total})
-            response.set_cookie('email',email)
-            response.set_cookie('mobile',mobile)
-            response.set_cookie('address',address)
-            return response
-    return render(request,'ecom/customer_address.html',{'addressForm':addressForm,'product_in_cart':product_in_cart,'product_count_in_cart':product_count_in_cart})
+    return render(
+        request,
+        'ecom/customer_address.html',
+        {
+            'addressForm': address_form,
+            'product_in_cart': product_in_cart,
+            'product_count_in_cart': product_count_in_cart,
+            'total': sum(product.price for product in products),
+        },
+    )
 
 
+@csrf_exempt
+@require_POST
+def mpesa_callback_view(request):
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({'ResultCode': 1, 'ResultDesc': 'Invalid JSON.'}, status=400)
+
+    if not isinstance(payload, dict) or not isinstance(payload.get('Body'), dict):
+        return JsonResponse({'ResultCode': 1, 'ResultDesc': 'Invalid callback payload.'}, status=400)
+    callback = payload['Body'].get('stkCallback')
+    if not isinstance(callback, dict):
+        return JsonResponse({'ResultCode': 1, 'ResultDesc': 'Invalid callback payload.'}, status=400)
+    checkout_id = callback.get('CheckoutRequestID')
+    if not checkout_id:
+        return JsonResponse({'ResultCode': 1, 'ResultDesc': 'Missing checkout request ID.'}, status=400)
+
+    with transaction.atomic():
+        payment = (
+            PaymentTransaction.objects.select_for_update()
+            .filter(checkout_request_id=checkout_id)
+            .first()
+        )
+        if payment is None:
+            return JsonResponse({'ResultCode': 1, 'ResultDesc': 'Payment not found.'}, status=404)
+
+        if payment.status == PaymentTransaction.STATUS_PENDING:
+            result_code = callback.get('ResultCode')
+            result_description = callback.get('ResultDesc', '')[:255]
+            callback_metadata = callback.get('CallbackMetadata')
+            if not isinstance(callback_metadata, dict):
+                callback_metadata = {}
+            callback_items = callback_metadata.get('Item')
+            if not isinstance(callback_items, list):
+                callback_items = []
+            metadata = {
+                item.get('Name'): item.get('Value')
+                for item in callback_items
+                if isinstance(item, dict) and item.get('Name')
+            }
+            try:
+                paid_amount = int(metadata.get('Amount'))
+                paid_phone = normalize_kenyan_phone(str(metadata.get('PhoneNumber', '')))
+            except (TypeError, ValueError):
+                paid_amount = None
+                paid_phone = None
+
+            if (
+                str(result_code) == '0'
+                and paid_amount == payment.amount
+                and paid_phone == payment.mobile
+            ):
+                product_map = {
+                    product.pk: product
+                    for product in models.Product.objects.filter(pk__in=payment.products)
+                }
+                if len(product_map) == len(payment.products):
+                    models.Orders.objects.bulk_create(
+                        [
+                            models.Orders(
+                                customer=payment.customer,
+                                product=product_map[product_id],
+                                email=payment.email,
+                                mobile=payment.mobile,
+                                address=payment.address,
+                                status='Pending',
+                                payment=payment,
+                            )
+                            for product_id in payment.products
+                        ]
+                    )
+                    payment.status = PaymentTransaction.STATUS_COMPLETED
+                    payment.mpesa_receipt_number = str(metadata.get('MpesaReceiptNumber', ''))[:50]
+                    payment.result_description = result_description or 'Payment confirmed.'
+                else:
+                    payment.status = PaymentTransaction.STATUS_FAILED
+                    payment.result_description = 'A product in the order is no longer available.'
+            else:
+                payment.status = PaymentTransaction.STATUS_FAILED
+                payment.result_description = (
+                    result_description or 'Payment details did not match the order.'
+                )[:255]
+            payment.save(
+                update_fields=[
+                    'status',
+                    'mpesa_receipt_number',
+                    'result_description',
+                    'updated_at',
+                ],
+            )
+
+    return JsonResponse({'ResultCode': 0, 'ResultDesc': 'Accepted'})
 
 
-# here we are just directing to this view...actually we have to check whther payment is successful or not
-#then only this view should be accessed
 @login_required(login_url='customerlogin')
-def payment_success_view(request):
-    # Here we will place order | after successful payment
-    # we will fetch customer  mobile, address, Email
-    # we will fetch product id from cookies then respective details from db
-    # then we will create order objects and store in db
-    # after that we will delete cookies because after order placed...cart should be empty
-    customer=models.Customer.objects.get(user_id=request.user.id)
-    products=None
-    email=None
-    mobile=None
-    address=None
-    if 'product_ids' in request.COOKIES:
-        product_ids = request.COOKIES['product_ids']
-        if product_ids != "":
-            product_id_in_cart=product_ids.split('|')
-            products=models.Product.objects.all().filter(id__in = product_id_in_cart)
-            # Here we get products list that will be ordered by one customer at a time
-
-    # these things can be change so accessing at the time of order...
-    if 'email' in request.COOKIES:
-        email=request.COOKIES['email']
-    if 'mobile' in request.COOKIES:
-        mobile=request.COOKIES['mobile']
-    if 'address' in request.COOKIES:
-        address=request.COOKIES['address']
-
-    # here we are placing number of orders as much there is a products
-    # suppose if we have 5 items in cart and we place order....so 5 rows will be created in orders table
-    # there will be lot of redundant data in orders table...but its become more complicated if we normalize it
-    for product in products:
-        models.Orders.objects.get_or_create(customer=customer,product=product,status='Pending',email=email,mobile=mobile,address=address)
-
-    # after order placed cookies should be deleted
-    response = render(request,'ecom/../../../../../../PycharmProjects/KotlinFinal/templates/payment_success.html')
-    response.delete_cookie('product_ids')
-    response.delete_cookie('email')
-    response.delete_cookie('mobile')
-    response.delete_cookie('address')
+@user_passes_test(is_customer)
+def payment_status_view(request, transaction_id):
+    payment = get_object_or_404(
+        PaymentTransaction,
+        pk=transaction_id,
+        customer__user=request.user,
+    )
+    response = render(request, 'ecom/payment_status.html', {'payment': payment})
+    if payment.status == PaymentTransaction.STATUS_COMPLETED:
+        response.delete_cookie('product_ids')
     return response
 
 
@@ -435,15 +516,9 @@ def payment_success_view(request):
 @login_required(login_url='customerlogin')
 @user_passes_test(is_customer)
 def my_order_view(request):
-    
-    customer=models.Customer.objects.get(user_id=request.user.id)
-    orders=models.Orders.objects.all().filter(customer_id = customer)
-    ordered_products=[]
-    for order in orders:
-        ordered_product=models.Product.objects.all().filter(id=order.product.id)
-        ordered_products.append(ordered_product)
-
-    return render(request,'ecom/../../../../../../PycharmProjects/KotlinFinal/templates/my_order.html',{'data':zip(ordered_products,orders)})
+    customer = get_object_or_404(models.Customer, user=request.user)
+    orders = models.Orders.objects.filter(customer=customer).select_related('product').order_by('-order_date')
+    return render(request, 'ecom/my_order.html', {'orders': orders})
  
 
 
@@ -505,8 +580,8 @@ def download_invoice_view(request,orderID,productID):
 @login_required(login_url='customerlogin')
 @user_passes_test(is_customer)
 def my_profile_view(request):
-    customer=models.Customer.objects.get(user_id=request.user.id)
-    return render(request,'ecom/../../../../../../PycharmProjects/KotlinFinal/templates/my_profile.html',{'customer':customer})
+    customer = get_object_or_404(models.Customer, user=request.user)
+    return render(request, 'ecom/my_profile.html', {'customer': customer})
 
 
 @login_required(login_url='customerlogin')

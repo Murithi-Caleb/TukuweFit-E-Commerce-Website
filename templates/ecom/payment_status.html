@@ -1,0 +1,19 @@
+{% extends 'ecom/customer_base.html' %}
+{% block content %}
+<main class="container" style="max-width: 720px; margin: 60px auto; text-align: center;">
+  {% if payment.status == 'pending' %}
+    <meta http-equiv="refresh" content="5">
+    <h1>Approve your M-Pesa payment</h1>
+    <p>Check your phone and enter your M-Pesa PIN to approve KES {{ payment.amount }}.</p>
+    <p>This page refreshes while we wait for Safaricom to confirm the payment.</p>
+  {% elif payment.status == 'completed' %}
+    <h1>Payment confirmed</h1>
+    <p>Your M-Pesa payment{% if payment.mpesa_receipt_number %} ({{ payment.mpesa_receipt_number }}){% endif %} was received.</p>
+    <a class="btn btn-success" href="{% url 'my-order' %}">View your orders</a>
+  {% else %}
+    <h1>Payment not completed</h1>
+    <p>{{ payment.result_description|default:"Your payment was not confirmed. Please try again." }}</p>
+    <a class="btn btn-primary" href="{% url 'customer-address' %}">Return to checkout</a>
+  {% endif %}
+</main>
+{% endblock content %}
