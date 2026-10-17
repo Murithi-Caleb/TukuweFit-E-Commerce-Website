@@ -2,11 +2,74 @@ import json
 from unittest.mock import patch
 
 from django.contrib.auth.models import Group, User
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from .models import Customer, Orders, PaymentTransaction, Product
 from .payments import normalize_kenyan_phone
+
+
+class CatalogAndAdminOrderViewTests(TestCase):
+    def setUp(self):
+        self.product = Product.objects.create(
+            name='Training bench',
+            price=2500,
+            description='Adjustable gym bench',
+        )
+
+    def test_public_catalog_renders_products_without_uploaded_images(self):
+        response = self.client.get('/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.product.name)
+
+    def test_admin_order_views_join_related_records(self):
+        admin = User.objects.create_superuser(
+            username='admin',
+            email='admin@example.com',
+            password='test-password',
+        )
+        customer_user = User.objects.create_user(
+            username='buyer',
+            password='test-password',
+            first_name='Test',
+            last_name='Buyer',
+        )
+        customer = Customer.objects.create(
+            user=customer_user,
+            address='Nairobi',
+            mobile='0712345678',
+        )
+        for _ in range(2):
+            Orders.objects.create(
+                customer=customer,
+                product=self.product,
+                email='buyer@example.com',
+                address='Nairobi CBD',
+                mobile='0712345678',
+                status='Pending',
+            )
+        self.client.force_login(admin)
+
+        for route_name in ('admin-dashboard', 'admin-view-booking'):
+            with self.subTest(route_name=route_name):
+                with CaptureQueriesContext(connection) as queries:
+                    response = self.client.get(reverse(route_name))
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, self.product.name)
+                order_queries = [
+                    query['sql'].lower()
+                    for query in queries
+                    if (
+                        'from "ecom_orders"' in query['sql'].lower()
+                        and 'ecom_product' in query['sql'].lower()
+                        and 'ecom_customer' in query['sql'].lower()
+                    )
+                ]
+                self.assertEqual(len(order_queries), 1)
 
 
 class KenyanPhoneNumberTests(TestCase):

@@ -44,22 +44,26 @@ facebook : fb.com/sumit.luv
         </tr>
       </thead>
       <!-- p for product, c for customer-->
-      {% for product,customer,order in data %}
+      {% for order in orders %}
       <tr>
-        {% for c in customer %}
-        <td> {{c.get_name}}</td>
-        <td>{{c.mobile}}</td>
+        {% if order.customer %}
+        <td>{{order.customer.get_name}}</td>
+        <td>{{order.customer.mobile}}</td>
+        {% else %}
+        <td></td>
+        <td></td>
+        {% endif %}
         <td>{{order.address}}</td>
-
-        {% endfor %}
-        {% for p in product %}
-        <td> {{p.name}}</td>
-        <td>{% if p.product_image %}<img src="{{ p.product_image.url }}" alt="{{ p.name }}" height="40" width="40">{% endif %}</td>
+        {% if order.product %}
+        <td>{{order.product.name}}</td>
+        <td>{% if order.product.product_image %}<img src="{{ order.product.product_image.url }}" alt="{{ order.product.name }}" height="40" width="40">{% endif %}</td>
+        {% else %}
+        <td></td>
+        <td></td>
+        {% endif %}
         <td>{{order.status}}</td>
         <td><a class="btn btn-primary btn-xs" href="{% url 'update-order' order.id  %}"><span class="glyphicon glyphicon-edit"></span></a>
         <a class="btn btn-danger btn-xs" href="{% url 'delete-order' order.id  %}"><span class="glyphicon glyphicon-trash"></span></a></td>
-
-        {% endfor %}
       </tr>
       {% endfor %}
     </table>

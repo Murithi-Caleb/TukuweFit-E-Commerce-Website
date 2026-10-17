@@ -1,6 +1,6 @@
 {% extends 'ecom/homebase.html' %}
 {% load static %}
-{% block body%}
+{% block content %}
 
   <style media="screen">
     .slide-1 {
@@ -48,7 +48,7 @@
 <!-- products data start-->
   <div class="row">
 
-      {% for p in product %}
+      {% for p in products %}
       <!-- card1 -->
       <div class="column">
       <div class="container page-wrapper" style="width: 450px;">
@@ -56,7 +56,7 @@
           <div class="row">
             <div class="el-wrapper">
               <div class="box-up">
-                <img class="img" src="{{ p.product_image.url }}" alt="product pic" height="300px" width="300px">
+                {% if p.product_image %}<img class="img" src="{{ p.product_image.url }}" alt="{{ p.name }}" height="300" width="300">{% endif %}
                 <div class="img-info">
                   <div class="info-inner">
                     <span class="p-company">{{p.name}}</span>
@@ -112,4 +112,4 @@
 
     
 
-{% endblock %}
+{% endblock content %}

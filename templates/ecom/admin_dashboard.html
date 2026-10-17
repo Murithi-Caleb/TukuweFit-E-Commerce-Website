@@ -24,17 +24,23 @@
 
           </tr>
         </thead>
-        {% for product,customer,order in data %}
+        {% for order in orders %}
         <tr>
-          {% for c in customer %}
-          <td> {{c.get_name}}</td>
-          <td>{{c.mobile}}</td>
+          {% if order.customer %}
+          <td>{{order.customer.get_name}}</td>
+          <td>{{order.customer.mobile}}</td>
+          {% else %}
+          <td></td>
+          <td></td>
+          {% endif %}
           <td>{{order.address}}</td>
-
-          {% endfor %}
-          {% for p in product %}
-          <td> {{p.name}}</td>
-          <td>{% if p.product_image %}<img src="{{ p.product_image.url }}" alt="{{ p.name }}" height="40" width="40">{% endif %}</td>
+          {% if order.product %}
+          <td>{{order.product.name}}</td>
+          <td>{% if order.product.product_image %}<img src="{{ order.product.product_image.url }}" alt="{{ order.product.name }}" height="40" width="40">{% endif %}</td>
+          {% else %}
+          <td></td>
+          <td></td>
+          {% endif %}
 
           {% if order.status == 'Pending'%}
           <td> <span class="label label-info">{{order.status}}</span></td>
@@ -45,7 +51,6 @@
           {%else%}
             <td> <span class="label label-primary">{{order.status}}</span></td>
           {%endif%}
-          {% endfor %}
         </tr>
         {% endfor %}
       </table>

@@ -10,6 +10,14 @@ TukuweFit is a Django e-commerce web application for gym enthusiasts and gym own
 - Product and customer image uploads
 - Django admin interface and contact/feedback forms
 
+## Recent improvements
+
+- Fixed the public and signed-in product catalogs so they render the products supplied by the views, and safely omit optional product images when none are uploaded.
+- Optimized both admin order screens to fetch product/customer details with joined queries instead of making extra database queries per order. The dashboard now shows the 10 most recent orders while its summary count remains the total.
+- Use unmanifested static-file URLs during development, so local pages work before `collectstatic`; production continues to use WhiteNoise's compressed manifest storage.
+- Added the missing payment/order migration so `migrate` creates the Daraja payment transaction table and its order relationship.
+- Added Pillow to the dependencies because Django requires it for the product and customer image fields.
+
 ## Requirements
 
 - Python 3.10 or newer

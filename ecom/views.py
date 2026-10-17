@@ -86,21 +86,16 @@ def admin_dashboard_view(request):
     productcount=models.Product.objects.all().count()
     ordercount=models.Orders.objects.all().count()
 
-    # for recent order tables
-    orders=models.Orders.objects.all()
-    ordered_products=[]
-    ordered_bys=[]
-    for order in orders:
-        ordered_product=models.Product.objects.all().filter(id=order.product.id)
-        ordered_by=models.Customer.objects.all().filter(id = order.customer.id)
-        ordered_products.append(ordered_product)
-        ordered_bys.append(ordered_by)
+    orders = (
+        models.Orders.objects.select_related('product', 'customer__user')
+        .order_by('-order_date', '-pk')[:10]
+    )
 
     mydict={
     'customercount':customercount,
     'productcount':productcount,
     'ordercount':ordercount,
-    'data':zip(ordered_products,ordered_bys,orders),
+    'orders':orders,
     }
     return render(request,'ecom/admin_dashboard.html',context=mydict)
 
@@ -179,15 +174,11 @@ def update_product_view(request,pk):
 
 @login_required(login_url='adminlogin')
 def admin_view_booking_view(request):
-    orders=models.Orders.objects.all()
-    ordered_products=[]
-    ordered_bys=[]
-    for order in orders:
-        ordered_product=models.Product.objects.all().filter(id=order.product.id)
-        ordered_by=models.Customer.objects.all().filter(id = order.customer.id)
-        ordered_products.append(ordered_product)
-        ordered_bys.append(ordered_by)
-    return render(request,'ecom/admin_view_booking.html',{'data':zip(ordered_products,ordered_bys,orders)})
+    orders = models.Orders.objects.select_related(
+        'product',
+        'customer__user',
+    ).order_by('-order_date', '-pk')
+    return render(request, 'ecom/admin_view_booking.html', {'orders': orders})
 
 
 @login_required(login_url='adminlogin')
